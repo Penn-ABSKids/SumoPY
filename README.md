@@ -36,3 +36,5 @@ Finally, to end a session in the current environment, use:
 Finally, if you would like reactivate your environment, simply type: 
 
     conda activate yourenvname
+
+Editing
