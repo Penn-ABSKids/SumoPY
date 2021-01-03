@@ -7,6 +7,8 @@ from flask import request, flash, redirect, url_for
 from flask_login import current_user, login_user, logout_user, login_required
 from werkzeug.urls import url_parse
 from werkzeug.utils import secure_filename
+from google.cloud import speech_v1p1beta1
+
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'wav'}
 
@@ -49,22 +51,47 @@ def enter():
 @bmc_app.route('/voice', methods = ['POST'])
 @login_required
 def save_voice():
-    file = request.files['audio_data']
-    file.save(file.filename + ".wav")
-    return "success" # "Done" button in page will move to new page
+    file_bytes = request.files['audio_data'].read()
+    # .WAV does not need encoding
+    audio = { 'content': file_bytes}
+    config = {
+        "language_code": "en-US",
+        "sample_rate_hertz": 48000,
+    }
+    speech_response = bmc_app.speech_client.recognize(config,audio)
+    first_result = None
+    for result in speech_response.results:
+        alternative = result.alternatives[0]
+
+        if first_result is None:
+            first_result = "Transcript: {}".format(alternative.transcript)
+        print(u"Transcript: {}".format(alternative.transcript))
+
+    return first_result
 
 @bmc_app.route('/bmc_trial')
 def memory():
     global book
     global library
-    global format
     library = Library()
-    format = "text"
+    global format
+    book = request.args.get("book")
+    format = request.args.get("format")
     try:
-        book = request.args.get("book")
-        return render_template('bmc_form.html', length = len(library.get(book)))
+        if (format == "text"):
+                return render_template('bmc_form.html', length = len(library.get(book)))
+        elif (format == "voice"):
+            return render_template('bmc_questions.html', length = len(library.get(book)))
+        else:
+            return render_template('error.html')
     except TypeError:
         return render_template('error.html')
+
+@bmc_app.route('/bmc_record')
+def record():
+    global chapter_num
+    chapter_num = request.args.get("chapter")
+    return render_template('bmc_voice.html')
 
 @bmc_app.route('/bmc_final', methods = ['GET', 'POST'])
 def result():
@@ -77,6 +104,8 @@ def result():
                     input = request.form[f"{x}"]
                     if (input.lower() == library.get(book)[x].lower()):
                         correct += 1
+            elif (format == "voice"):
+                correct = 6
             p = Practice(book=book, correct=correct, medium=format, user=user)
             db.session.add(p)
             db.session.commit()
